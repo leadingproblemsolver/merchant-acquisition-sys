@@ -1,0 +1,16 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {profileScore,mapConversation,nextActionCard} from '../src/conversation-core.mjs';
+const a=()=>({id:'lead1',company:'Sample Cafe',sector:'Food/Cafe',source:'https://example.com',profileVerified:false,studentRelevance:'UNKNOWN',ownerVerified:false,buyer:'',contact:'',partnerStatus:'UNKNOWN',buyerGoal:'UNKNOWN',interestStatus:'UNKNOWN'});
+test('unverified directory listing is not qualified despite food category',()=>{const p=profileScore(a());assert.equal(p.score,0);assert.equal(p.status,'VERIFY')});
+test('verified, evidenced ICP has deterministic score',()=>{const p=profileScore({...a(),profileVerified:true,studentRelevance:'DIRECT_CAMPUS',studentEvidence:'Observation, campus venue',ownerVerified:true,buyer:'Owner',contact:'Manager intro',buyerGoal:'NEW_STUDENTS',confirmedNeed:'Need students',goalEvidenceRef:'call-1'});assert.equal(p.score,100);assert.equal(p.status,'ENGAGE')});
+test('existing partner is not a new acquisition even with high score',()=>{const p=profileScore({...a(),partnerStatus:'EXISTING_PARTNER'});assert.equal(p.status,'STOP');assert.equal(mapConversation({...a(),partnerStatus:'EXISTING_PARTNER'},[]).stage,'ROUTE_EXISTING')});
+test('declined contact stops outreach',()=>assert.equal(mapConversation({...a(),permission:'DECLINED'},[]).stage,'STOP'));
+test('unknown owner routes to decision maker',()=>assert.equal(mapConversation(a(),[]).stage,'HUMAN_ROUTER'));
+test('known owner with unknown goal gets discovery question',()=>assert.equal(mapConversation({...a(),ownerVerified:true,buyer:'Manager'},[]).stage,'GOAL_DISCOVERY'));
+test('goal without concrete evidence requests a real example',()=>assert.equal(mapConversation({...a(),ownerVerified:true,buyer:'Owner',buyerGoal:'OFF_PEAK'},[]).stage,'EVIDENCE_DISCOVERY'));
+test('confirmed goal without buyer interest tests value, does not book',()=>assert.equal(mapConversation({...a(),ownerVerified:true,buyer:'Owner',buyerGoal:'OFF_PEAK',confirmedNeed:'Slow Wednesday',goalEvidenceRef:'visit-11'},[]).stage,'VALUE_TEST'));
+test('interest without RealX authorization blocks meeting pitch',()=>assert.equal(mapConversation({...a(),ownerVerified:true,buyer:'Owner',buyerGoal:'OFF_PEAK',confirmedNeed:'Slow Wednesday',goalEvidenceRef:'visit-11',interestStatus:'INTERESTED'},[]).stage,'INTERNAL_APPROVAL'));
+test('interest with authorization can ask for meeting, without falsely counting one',()=>assert.equal(mapConversation({...a(),ownerVerified:true,buyer:'Owner',buyerGoal:'OFF_PEAK',confirmedNeed:'Slow Wednesday',goalEvidenceRef:'visit-11',interestStatus:'INTERESTED',outreachAuthorized:true,authorizationRef:'approval-1'},[]).stage,'MEETING_REQUEST'));
+test('booked event invokes AE handoff',()=>assert.equal(mapConversation(a(),[{accountId:'lead1',type:'MEETING_BOOKED'}]).stage,'AE_HANDOFF'));
+test('no pricing hallucination in objection handling',()=>assert.match(mapConversation(a(),[],'QUESTION').reason,/avoid inventing/));
+test('card states evidence gaps',()=>assert.match(nextActionCard(a(),[]),/NOT YET CONFIRMED/));

@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {blank,addAccount,addEvent,metrics,promoteEvidence,validateImport,csvExport,gapReport} from '../src/domain.mjs';
+const account=(track='PAID_B2B')=>addAccount(blank(),{track,company:'Example Service',source:'https://example.com',buyer:'Owner',contact:'Published company line',pain:'Unverified new customer challenge'});
+test('new accounts are hypotheses and cannot be counted as outreach',()=>{const d=account();assert.equal(d.accounts[0].stage,'SOURCED');assert.equal(metrics(d,'PAID_B2B').attempted,0)});
+test('duplicate company names rejected within track',()=>{const d=account();assert.throws(()=>addAccount(d,{track:'PAID_B2B',company:'example service'}),/Duplicate/)});
+test('evidence promotion requires actor and receipt',()=>{const d=account();assert.throws(()=>promoteEvidence(d,d.accounts[0].id,'BUYER_CONFIRMED','',''),/receipt/);assert.throws(()=>promoteEvidence(d,d.accounts[0].id,'BUYER_CONFIRMED','note',''),/actor/)});
+test('real event requires receipt; blank typed notes disallowed',()=>{const d=account();assert.throws(()=>addEvent(d,d.accounts[0].id,{type:'REPLY',note:'yes'}),/receipt/)});
+test('replies do not invent outreach attempts',()=>{let d=account();d=addEvent(d,d.accounts[0].id,{type:'REPLY',note:'Buyer responded',receipt:'email-thread-1'});assert.equal(metrics(d,'PAID_B2B').replied,1);assert.equal(metrics(d,'PAID_B2B').attempted,0);assert.equal(metrics(d,'PAID_B2B').replyRate,null)});
+test('payment requires positive QAR amount and receipt',()=>{let d=account();const id=d.accounts[0].id;assert.throws(()=>addEvent(d,id,{type:'PAYMENT',note:'Paid',receipt:'R1',amount:0}),/positive/);d=addEvent(d,id,{type:'PAYMENT',note:'Payment cleared',receipt:'R1',amount:200});assert.equal(metrics(d,'PAID_B2B').collectedQAR,200);assert.equal(d.accounts[0].stage,'WON')});
+test('RealX redemption never counts as paid B2B',()=>{let d=account('REALX');const id=d.accounts[0].id;assert.throws(()=>addEvent(d,id,{type:'PAYMENT',note:'paid',receipt:'R1',amount:200}),/PAID_B2B/);d=addEvent(d,id,{type:'REDEMPTION',note:'Transaction reported',receipt:'transaction-id-1'});assert.equal(metrics(d,'REALX').redemptions,1);assert.equal(metrics(d,'REALX').collectedQAR,null)});
+test('CSV quotes embedded commas and quotes',()=>{let d=addAccount(blank(),{track:'UHUB',company:'A, "B"'});assert.match(csvExport(d),/"A, ""B"""/)});
+test('import rejects orphan events',()=>{const d=account();d.events=[{id:'1',accountId:'bogus',type:'REPLY',receipt:'R'}];assert.throws(()=>validateImport(d),/orphan/)});
+test('gap report exposes missing contact and unattempted accounts',()=>{let d=addAccount(blank(),{track:'REALX',company:'Sample'});const g=gapReport(d,'REALX');assert.equal(g.length,4)});
